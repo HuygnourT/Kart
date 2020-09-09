@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
@@ -13,9 +14,69 @@ public class Drive : MonoBehaviour
     public float maxBrakeTorque = 500;
 
     public AudioSource skidSound;
+    public AudioSource highAccel;
 
     public Transform SkidTrailPrefab;
     Transform[] skidTrails = new Transform[4];
+
+    public ParticleSystem smokePrefab;
+
+    ParticleSystem[] skidSmoke = new ParticleSystem[4];
+
+    public GameObject brakeLight;
+
+    public Rigidbody rb;
+    public float gearLength = 3.0f;
+    public float currentSpeed {
+        get
+        {
+            return rb.velocity.magnitude * gearLength;
+        }
+    }
+    public float lowPitch = 1f;
+    public float highPitch = 6f;
+    public int numGears = 5;
+    float rpm;
+    int currentGear;
+    float currentGearPerc;
+    public float maxSpeed = 200;
+
+
+
+    private void Start()
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            skidSmoke[i] = Instantiate(smokePrefab);
+            skidSmoke[i].Stop();
+        }
+        brakeLight.SetActive(false);
+    }
+
+    void CalculateEngineSound()
+    {
+        float gearPercentage = (1 / (float)numGears);
+        float targetGearFactor = Mathf.InverseLerp(gearPercentage * currentGear, gearPercentage * (currentGear + 1),
+            Mathf.Abs(currentSpeed/maxSpeed)); // ex return 8 = Mathf.InverseLerp(5,10,8)
+
+        currentGearPerc = Mathf.Lerp(gearPercentage, targetGearFactor, Time.deltaTime * 5f);
+
+        var gearNumFactor = currentGear / (float)numGears;
+        rpm = Mathf.Lerp(gearNumFactor, 1, currentGear);
+        float speedPercentage = Mathf.Abs(currentSpeed / maxSpeed);
+        float upperGearMax = ( 1 / (float)numGears ) * ( currentGear + 1 );
+        float downGearMax = (1 / (float)numGears) * (currentGear);
+
+        if (currentGear > 0 && speedPercentage < downGearMax)
+            currentGear--;
+
+        if (speedPercentage > upperGearMax && (currentGear < (numGears - 1)))
+            currentGear++;
+
+        float pitch = Mathf.Lerp(lowPitch, highPitch, rpm);
+        highAccel.pitch = Mathf.Min(highPitch, pitch) * 0.25f; 
+
+    }
 
     public void StartSkidTrail(int i)
     {
@@ -43,10 +104,19 @@ public class Drive : MonoBehaviour
         accel = Mathf.Clamp(accel, -1, 1);
         steer = Mathf.Clamp(steer, -1, 1) * maxSteerAngle;
         brake = Mathf.Clamp(brake, 0, 1) * maxBrakeTorque;
-        float thrustTorque = accel * torque;
+
+        float thrustTorque = 0;
+
+        if(currentSpeed < maxSpeed )
+            thrustTorque = accel * torque;
+
+        if (brake != 0)
+            brakeLight.SetActive(true);
+        else
+            brakeLight.SetActive(false);
 
         //handle wheel rotate and moving according to WC
-        for(int i = 0; i < 4; i++)
+        for (int i = 0; i < 4; i++)
         {
             WCs[i].motorTorque = thrustTorque;
             if (i < 2)
@@ -79,6 +149,8 @@ public class Drive : MonoBehaviour
                     skidSound.Play();
                 }
                 //StartSkidTrail(i);
+                skidSmoke[i].transform.position = WCs[i].transform.position - WCs[i].transform.up * WCs[i].radius;
+                skidSmoke[i].Emit(1);
             } else
             {
                 //EndSkidTrail(i);
@@ -99,5 +171,6 @@ public class Drive : MonoBehaviour
 
         Go(a,s,b);
         CheckForSkid();
+        CalculateEngineSound();
     }
 }
